@@ -8,8 +8,8 @@ import imaplib, email, os, re
 
 
 
-user = 'aa' # 1miranhamail9@gmail.com
-password = 'bc' # Um2Tres4
+user = 'aa'
+password = 'bc'
 imap_url = 'imap.gmail.com'
 principal = tkinter.Tk()
 # --------------------------------------SMTP--------------------
