@@ -19,87 +19,96 @@ class SMTP:
     def _validate_(self, recv, reply):
         print(recv)
         if recv[:3] != reply:
-            print(reply.decode() +" reply not received")
+            print(reply.decode() + " reply not received")
             return False
         return True
 
-    def _connect_(self, socket):
-        socket.connect((self.mailServer, self.mailPort))
-        recv = socket.recv(1024)
+    def _connect_(self, sock):
+        sock.connect((self.mailServer, self.mailPort))
+        recv = sock.recv(1024)
         return self._validate_(recv, b'220')
 
-    def _HELO_(self, socket):
+    def _HELO_(self, sock):
         helomsg = "HELO Alice" + self.endmsg
-        socket.send(helomsg.encode())
-        recv = socket.recv(1024)
+        sock.send(helomsg.encode())
+        recv = sock.recv(1024)
         return self._validate_(recv, b'250')
 
-    def _STARTTLS_(self, socket):
+    def _STARTTLS_(self, sock):
         starttls = "STARTTLS" + self.endmsg
-        socket.send(starttls.encode())
-        recv = socket.recv(1024)
+        sock.send(starttls.encode())
+        recv = sock.recv(1024)
         return self._validate_(recv, b'220')
         
-    def _AUTH_(self, socket):
+    def _AUTH_(self, sock):
         authmsg = base64.b64encode(("\00" + self.login + "\00" + self.password).encode())
         authmsg = "AUTH PLAIN " + str(authmsg.decode()) + self.endmsg
-        socket.send(authmsg.encode())
-        recv = socket.recv(1024)
+        sock.send(authmsg.encode())
+        recv = sock.recv(1024)
         return self._validate_(recv, b'235')
 
-    def _MAIL_(self, socket):
+    def _MAIL_(self, sock):
         mail = "MAIL FROM: <" + self.login + ">" + self.endmsg
-        socket.send(mail.encode())
-        recv = socket.recv(1024)
-        if not self._validate_(recv, b'250'):
-            return False
-        rcpt = "rcpt to: <" + self.receiveAdress + ">" + self.endmsg
-        socket.send(rcpt.encode())
-        recv = socket.recv(1024)
+        sock.send(mail.encode())
+        recv = sock.recv(1024)
         return self._validate_(recv, b'250')
 
-    def _DATA_(self, socket):
-        socket.send("DATA\r\n".encode())
-        recv = socket.recv(1024)
-        if not self._validate_(recv, b'354'):
-            print("Could not send DATA")
-            return False
+    def _RCPT_(self, sock):
+        rcpt = "rcpt to: <" + self.receiveAdress + ">" + self.endmsg
+        sock.send(rcpt.encode())
+        recv = sock.recv(1024)
+        return self._validate_(recv, b'250')
+
+    def _DATA_(self, sock):
+        sock.send(("DATA" + self.endmsg).encode())
+        recv = sock.recv(1024)
+        return self._validate_(recv, b'354')
+
+    def _MSG_(self, sock):
         msg = "Subject: " + self.subject + self.endmsg + self.message + self.endmsg + "." + self.endmsg
-        socket.send(msg.encode())
-        recv = socket.recv(1024)
+        sock.send(msg.encode())
+        recv = sock.recv(1024)
         return self._validate_(recv, b'250')
 
     def send(self):
-        if not self._connect_(self.clientSocket):
-            print("Could not establish connection")
-            return False
-        print("Connection established")
-        if not self._HELO_(self.clientSocket):
-            print("No helo")
-            return False
-        print("helo received")
-        if not self._STARTTLS_(self.clientSocket):
-            print("No STARTTTLS")
-            return False
-        self.sslclientSocket = ssl.wrap_socket(self.clientSocket)
-        if not self._HELO_(self.sslclientSocket):
-            print("No helo")
-            return False
-        print("helo received") 
-        if not self._AUTH_(self.sslclientSocket ):
-            print("Could not autenticate credentials")
-            return False
-        print("User Authentified")
-        if not self._MAIL_(self.sslclientSocket):
-            print("Could not send mail")
-            return False
-        if not self._DATA_(self.sslclientSocket):
-            print("Could not send data")
-            return False
-        self.sslclientSocket.send("quit\r\n".encode())
-        recv = self.sslclientSocket.recv(1024)
-        if self._validate_(recv, b'221'):
+        try:
+            if not self._connect_(self.clientSocket):
+                raise ConnectionRefusedError("[CONNECTION FAILED]")
+            print("Connection established")
+            if not self._HELO_(self.clientSocket):
+                raise ConnectionRefusedError("[NO HELO]")
+            print("helo received")
+            if not self._STARTTLS_(self.clientSocket):
+                raise ConnectionError("[STARTTLS FAILED]")
+            self.sslclientSocket = ssl.wrap_socket(self.clientSocket)
+            if not self._HELO_(self.sslclientSocket):
+                raise ConnectionRefusedError("[NO HELO - TLS SESSION]")
+            print("helo received") 
+            if not self._AUTH_(self.sslclientSocket ):
+                raise ConnectionAbortedError("[AUTHENTICATION FAILED]")
+            print("User Authentified")
+            if not self._MAIL_(self.sslclientSocket):
+                raise ConnectionAbortedError("[MAIL FROM FAILED]")
+            if not self._RCPT_(self.sslclientSocket):
+                raise ConnectionAbortedError("[RCPT TO FAILED]")
+            if not self._DATA_(self.sslclientSocket):
+                raise ConnectionAbortedError("[DATA FAILED]")
+            if not self._MSG_(self.sslclientSocket):
+                raise ConnectionAbortedError("[MSG FAILED]")
+        except ConnectionRefusedError as CRerr:
+            print("Could not connect to server. Aborting... " + CRerr.args[0])
+        except ConnectionError as Cerr:
+            print("Could not start secure TLS connection. Aborting... " + Cerr.args[0])
+        except ConnectionAbortedError as CAerr:
+            print("Could not send mail. Aborting... " + CAerr.args[0])
+        else:
             print("Email sent!")
-            return True
-        print("Could not quit")
-        return False
+            self.sslclientSocket.send("quit\r\n".encode())
+            recv = self.sslclientSocket.recv(1024)
+            if not self._validate_(recv, b'221'):
+                print("[ERROR] Could not exit session")
+                raise ConnectionError
+            print("Exited Successfully")
+        finally:
+            self.sslclientSocket.close()
+            self.clientSocket.close()
