@@ -39,7 +39,7 @@ class SMTP:
         sock.send(starttls.encode())
         recv = sock.recv(1024)
         return self._validate_(recv, b'220')
-        
+
     def _AUTH_(self, sock):
         authmsg = base64.b64encode(("\00" + self.login + "\00" + self.password).encode())
         authmsg = "AUTH PLAIN " + str(authmsg.decode()) + self.endmsg
@@ -112,4 +112,3 @@ class SMTP:
         finally:
             self.sslclientSocket.close()
             self.clientSocket.close()
-

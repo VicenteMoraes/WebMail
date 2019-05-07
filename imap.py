@@ -1,6 +1,7 @@
 import socket
 import base64
 import ssl
+import time
 
 class IMAP:
     def __init__(self,  mailServer, mailPort, login, password):
@@ -38,7 +39,7 @@ class IMAP:
     def _EXAMINE_(self, sock, tag, mailbox):
         examinemsg = tag + " EXAMINE " + mailbox + self.endmsg
         sock.send(examinemsg.encode())
-        recv = sock.recv(1024)
+        recv = sock.recv()
         if not self._validate_(recv, b'(Success)'):
             return False
         else:
@@ -57,13 +58,15 @@ class IMAP:
         print(fetchmsg)
         sock.send(fetchmsg.encode())
         response = ""
-        recv = sock.recv(2048)
+        recv = sock.recv()
+        print(recv)
         while not self._validate_(recv[len(recv)-12:len(recv)], b'OK Success\r\n'):
             response += recv.decode("utf-8")
-            recv = sock.recv(2048)
+            time.sleep(0.1)
+            recv = sock.recv()
             print(recv)
         return response
- 
+
     def establish_connection(self):
         try:
             if not self._connect_(self.clientSocket):
