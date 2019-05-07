@@ -1,2 +1,2 @@
 # WebMail
-Spiderman Themed gmail gui
+gmail email gui with imap and smtp support
