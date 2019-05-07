@@ -11,55 +11,98 @@ class IMAP:
         self.clientSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.clientSocket = ssl.wrap_socket(self.clientSocket)
         self.endmsg = "\r\n"
+        self.connection = False
 
-    def _validate_(self, recv):
+    def _validate_(self, recv, reply):
         print(recv)
-        return b'OK' in recv
+        return reply in recv
 
     def _connect_(self, sock):
         sock.connect((self.mailServer, self.mailPort))
         recv = sock.recv(1024)
-        return self._validate_(recv)
+        return self._validate_(recv, b'OK')
 
-    def _HELO_(self, sock):
-        helomsg = "HELO Alice" + self.endmsg
-        sock.send(helomsg.encode())
-        recv = sock.recv(1024)
-        return self._validate_(recv)
-
-    def _STARTTLS_(self, sock):
-        starttls = "STARTTLS" + self.endmsg
-        sock.send(starttls.encode())
-        recv = sock.recv(1024)
-        return self._validate_(recv)
-        
-    def _AUTH_(self, sock):
+    def _AUTH_(self, sock, tag):
         authmsg = base64.b64encode(("\00" + self.login + "\00" + self.password).encode())
-        authmsg = "a001 " + "AUTHENTICATE PLAIN " + str(authmsg.decode()) + self.endmsg
+        authmsg = tag + " " + "AUTHENTICATE PLAIN " + str(authmsg.decode()) + self.endmsg
         sock.send(authmsg.encode())
         recv = sock.recv(1024)
-        return self._validate_(recv)
+        return self._validate_(recv, b'OK')
 
+    def _NOOP_(self, sock, tag):
+        noopmsg = tag + " NOOP" + self.endmsg
+        sock.send(noopmsg.encode())
+        recv = sock.recv(1024)
+        return self._validate_(recv, b'OK')
+
+    def _EXAMINE_(self, sock, tag, mailbox):
+        examinemsg = tag + " EXAMINE " + mailbox + self.endmsg
+        sock.send(examinemsg.encode())
+        recv = sock.recv(1024)
+        if not self._validate_  (recv, b'(Success)'):
+            return False
+        else:
+            recv = recv.decode()
+            uid = ""
+            i = recv.find("EXISTS") - 1
+            while recv[i] != "\n":
+                uid += recv[i]
+                i -= 1
+            uid = uid.replace(" ", "").replace("*", "")
+            uid = int(uid)
+            return uid
+
+    def _FETCH_(self, sock, tag, uid, fetch_tags):
+        fetchmsg = tag + " FETCH " + str(uid) + " (" + fetch_tags + ")" + self.endmsg
+        print(fetchmsg)
+        sock.send(fetchmsg.encode())
+        email = ""
+        recv = sock.recv(2048)
+        while not recv[len(recv)-12:len(recv)] == b'OK Success\r\n':
+            email += recv.decode("utf-8")
+            recv = sock.recv(2048)
+            print(recv)
+        return email
+ 
     def establish_connection(self):
         try:
             if not self._connect_(self.clientSocket):
                 raise ConnectionRefusedError("[CONNECTION FAILED]")
             print("Connection established")
-            if not self._AUTH_(self.clientSocket):
+            if not self._AUTH_(self.clientSocket, "a001"):
                 raise ConnectionAbortedError("[AUTHENTICATION FAILED]")
             print("User Authenticated")
-            while True:
-                ans = input()
-                if ans == "q":
-                    break
-                self.clientSocket.send((ans + self.endmsg).encode())
-                print(self.clientSocket.recv(1024))
         except ConnectionRefusedError as CRerr:
-            print("Could not connect to server. Aborting... " + CRerr.args[0])
+            print("Could not connect to server. Aborting... " + ", ".join(CRerr.args))
         except ConnectionError as Cerr:
-            print("Could not start secure TLS connection. Aborting... " + Cerr.args[0])
+            print("Could not start secure TLS connection. Aborting... " + ", ".join(Cerr.args))
         except ConnectionAbortedError as CAerr:
-            print("Could not send mail. Aborting... " + CAerr.args[0])
-        finally:
-            self.clientSocket.close()
+            print("Could not send mail. Aborting... " + ", ".join(CAerr.args))
+        else:
+            self.connection = True
 
+    def fetch(self):
+        try:
+            if not self.connection:
+                raise ConnectionError("No connection")
+            if not self._NOOP_(self.clientSocket, "a002"):
+                raise ConnectionRefusedError("[NOOP FAILED]")
+            UID = self._EXAMINE_(self.clientSocket, "a003", "inbox")
+            if not UID:
+                raise ConnectionRefusedError("[EXAMINE FAILED]")
+            mails = []
+            counter = 0
+            for mail_uid in range(1, UID + 1):
+                header = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "FLAGS BODY[HEADER.FIELDS (DATE FROM SUBJECT)]")
+                print("ok")
+                counter += 1
+                body = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "BODY[TEXT]")
+                mails.append((header, body))
+            return tuple(mails)
+        except ZeroDivisionError:
+            pass
+        else:
+            return True
+
+    def close(self):
+        self.clientSocket.close()
