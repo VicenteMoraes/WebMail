@@ -39,7 +39,7 @@ class IMAP:
         examinemsg = tag + " EXAMINE " + mailbox + self.endmsg
         sock.send(examinemsg.encode())
         recv = sock.recv(1024)
-        if not self._validate_  (recv, b'(Success)'):
+        if not self._validate_(recv, b'(Success)'):
             return False
         else:
             recv = recv.decode()
@@ -56,28 +56,26 @@ class IMAP:
         fetchmsg = tag + " FETCH " + str(uid) + " (" + fetch_tags + ")" + self.endmsg
         print(fetchmsg)
         sock.send(fetchmsg.encode())
-        email = ""
+        response = ""
         recv = sock.recv(2048)
-        while not recv[len(recv)-12:len(recv)] == b'OK Success\r\n':
-            email += recv.decode("utf-8")
+        while not self._validate_(recv[len(recv)-12:len(recv)], b'OK Success\r\n'):
+            response += recv.decode("utf-8")
             recv = sock.recv(2048)
             print(recv)
-        return email
+        return response
  
     def establish_connection(self):
         try:
             if not self._connect_(self.clientSocket):
-                raise ConnectionRefusedError("[CONNECTION FAILED]")
+                raise ConnectionError("[CONNECTION FAILED]")
             print("Connection established")
             if not self._AUTH_(self.clientSocket, "a001"):
                 raise ConnectionAbortedError("[AUTHENTICATION FAILED]")
             print("User Authenticated")
-        except ConnectionRefusedError as CRerr:
-            print("Could not connect to server. Aborting... " + ", ".join(CRerr.args))
         except ConnectionError as Cerr:
-            print("Could not start secure TLS connection. Aborting... " + ", ".join(Cerr.args))
+            print("Could not connect to server. Aborting... " + ", ".join(Cerr.args))
         except ConnectionAbortedError as CAerr:
-            print("Could not send mail. Aborting... " + ", ".join(CAerr.args))
+            print("Server connection failed. Aborting... " + ", ".join(CAerr.args))
         else:
             self.connection = True
 
@@ -94,15 +92,16 @@ class IMAP:
             counter = 0
             for mail_uid in range(1, UID + 1):
                 header = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "FLAGS BODY[HEADER.FIELDS (DATE FROM SUBJECT)]")
-                print("ok")
+                print("header ok")
                 counter += 1
                 body = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "BODY[TEXT]")
                 mails.append((header, body))
+                print("body ok")
             return tuple(mails)
-        except ZeroDivisionError:
-            pass
-        else:
-            return True
+        except ConnectionError as Cerr:
+            print("No connection to imap server. Aborting... " + ", ".join(Cerr.args))
+        except ConnectionRefusedError as CRerr:
+            print("Could not feth emails. Aborting... " + ", ".join(CRerr.args))
 
     def close(self):
         self.clientSocket.close()
