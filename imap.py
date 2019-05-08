@@ -95,11 +95,9 @@ class IMAP:
             counter = 0
             for mail_uid in range(1, UID + 1):
                 header = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "FLAGS BODY[HEADER.FIELDS (DATE FROM SUBJECT)]")
-                print("header ok")
                 counter += 1
                 body = self._FETCH_(self.clientSocket, "a{0:03d}".format(3 + mail_uid + counter), mail_uid, "BODY[TEXT]")
                 mails.append((header, body))
-                print("body ok")
             return tuple(mails)
         except ConnectionError as Cerr:
             print("No connection to imap server. Aborting... " + ", ".join(Cerr.args))
