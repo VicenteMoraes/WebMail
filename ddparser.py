@@ -1,6 +1,5 @@
 def _Mfind_(index, msg):
     string = ""
-    print(msg, len(msg))
     try:
         while msg[index]  != "\n":
             string += msg[index]
